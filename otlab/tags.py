@@ -144,9 +144,8 @@ def validate(p):
 
 
 class TagRegistry:
-    def __init__(self):
-        self._tags = {}
-        self._seq = 0
+    def __init__(self, store):
+        self.store = store
 
     def meta(self):
         return {"categories": CATEGORIES, "datatypes": DATATYPES, "units": UNITS,
@@ -154,18 +153,18 @@ class TagRegistry:
                 "stages": STAGES, "stage_label": STAGE_LABEL,
                 "advance_label": ADVANCE_LABEL, "templates": TEMPLATES}
 
-    def list(self):
-        return list(self._tags.values())
+    def list(self, user):
+        return self.store.load_tags(user)
 
-    def create(self, p):
+    def create(self, user, p):
         errors = validate(p)
         if errors:
             return None, errors
-        self._seq += 1
-        tid = f"tag{self._seq}"
+        seq = self.store.next_seq(user)
+        tid = f"tag{seq}"
         analog = p["category"] in ("AI", "AO")
         tag = {
-            "id": tid,
+            "id": tid, "seq": seq,
             "name": p["name"].strip(),
             "description": (p.get("description") or "").strip(),
             "category": p["category"],
@@ -180,30 +179,30 @@ class TagRegistry:
             "alarm_state": p.get("alarm_state") if not analog else None,
             "history_enabled": bool(p.get("history_enabled")),
             "sample": p.get("sample") if p.get("history_enabled") else None,
-            "stage": 0,
-            "opc_item": "",
-            "access": "",
-            "ip21_tag": "",
+            "stage": 0, "opc_item": "", "access": "", "ip21_tag": "",
             "ts": time.time(),
         }
-        self._tags[tid] = tag
+        self.store.save_tag(user, tag)
         return tag, []
 
-    def advance(self, tid):
-        t = self._tags.get(tid)
+    def advance(self, user, tid, osg=None):
+        t = self.store.get_tag(user, tid)
         if not t:
             return None
         t["stage"] = min(t["stage"] + 1, len(STAGES) - 1)
         if t["stage"] >= 2 and not t["opc_item"]:
             safe = t["name"].replace("-", "_")
-            t["opc_item"] = f"OSG.WELLPAD1.{safe}"
+            channel = (osg or {}).get("channel", "OSG")
+            device = (osg or {}).get("device", "WELLPAD1")
+            t["opc_item"] = f"{channel}.{device}.{safe}"
             t["access"] = "Read/Write" if t["category"] in ("AO", "DO") else "Read only"
         if t["stage"] >= 3 and not t["ip21_tag"]:
             t["ip21_tag"] = f"IP21.{t['name'].replace('-', '_')}"
+        self.store.save_tag(user, t)
         return t
 
-    def delete(self, tid):
-        return self._tags.pop(tid, None) is not None
+    def delete(self, user, tid):
+        return self.store.delete_tag(user, tid)
 
 
 def _num(v):

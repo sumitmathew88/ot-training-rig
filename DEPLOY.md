@@ -87,6 +87,27 @@ Then open ports 4841-4843 in the firewall to specific source IPs only. Note
 the OPC UA endpoints here run without OPC-layer security (no certs), which is
 fine on an isolated lab network but must never sit on the public internet.
 
+## Persisting each user's work (Render disk)
+
+Each trainee's tags and connectivity config are saved per username to a SQLite
+file, so they can log out and return to their own workspace. That file lives at
+OTLAB_DATA_DIR (the container defaults it to /data).
+
+Without a disk, /data is inside the container and is wiped on every redeploy.
+To make a trainee's work survive redeploys, attach a persistent disk:
+
+1. In Render, open the service > Disks > Add Disk.
+2. Name it (e.g. otlab-data), Mount path: /data, Size: 1 GB is plenty.
+3. Save. Render redeploys with the disk attached.
+
+A disk requires a paid instance (you are already on Starter) and a single
+instance, which this app already is. From then on, logins keep their saved tags
+and configuration across redeploys and restarts.
+
+If you would rather not use a disk, an external Postgres (Render Postgres, or
+the Supabase you already use) is the alternative durable store - ask and I will
+wire it in.
+
 ## Security notes
 
 - This is a simulation. Keep it isolated from any real OT network and never
