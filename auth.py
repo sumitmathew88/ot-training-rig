@@ -72,10 +72,14 @@ font-size:10.5px;color:var(--mut);letter-spacing:.4px;text-align:center}
 @keyframes flame{0%,100%{transform:scaleY(1) translateY(0);opacity:.9}
 50%{transform:scaleY(1.18) translateY(-3px);opacity:1}}
 .flame{transform-origin:center bottom;animation:flame 1.3s ease-in-out infinite}
-@media(max-width:640px){h1{font-size:23px}.card{padding:26px 22px}}
+@media(max-width:640px){
+h1{font-size:23px}
+.card{padding:24px 22px;background:rgba(11,18,27,.66)}
+.wrap{align-items:flex-end;padding:0 18px 26px}
+}
 </style></head><body>
 <div class=scene>
-<svg viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+<svg id="scene" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
 <defs>
 <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
 <stop offset="0" stop-color="#0a1521"/><stop offset="55%" stop-color="#0a1019"/>
@@ -242,6 +246,18 @@ stroke-dashoffset="600"><animate attributeName="stroke-dashoffset" from="600" to
 <div class=foot>Authorised users only · Training simulation environment</div>
 </form>
 </div>
+<script>
+(function(){
+ var s=document.getElementById('scene');
+ var mq=window.matchMedia('(max-width:640px)');
+ function fit(){
+   s.setAttribute('viewBox', mq.matches ? '892 70 372 760' : '0 0 1440 900');
+ }
+ fit();
+ (mq.addEventListener?mq.addEventListener('change',fit):mq.addListener(fit));
+ window.addEventListener('resize',fit);
+})();
+</script>
 </body></html>"""
 
 

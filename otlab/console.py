@@ -241,6 +241,24 @@ input:focus,select:focus{outline:none;border-color:var(--ac)}
 .tnode{border:1px solid var(--ln);border-radius:9px;background:var(--pn);padding:9px 11px;margin-bottom:6px}
 .tnode .role{font-size:11px;color:var(--cy)}
 .tnode .det{font-size:11px;color:var(--mut);margin-top:2px;word-break:break-all}
+@media(max-width:640px){
+body{padding:0 10px 16px}
+.hero{height:auto;min-height:118px}
+.heroart,.scrim{height:100%}
+.scrim{background:linear-gradient(0deg,rgba(7,11,18,.92),rgba(7,11,18,.55))}
+.htxt{position:relative;padding:14px 14px 16px;z-index:2}
+.kicker{font-size:10px;letter-spacing:1.3px;margin-bottom:5px;padding-right:88px}
+h1{font-size:20px;line-height:1.1;letter-spacing:.4px}
+.sub{font-size:12px;line-height:1.4}
+.who{font-size:10px;margin-top:6px}
+a.out{top:12px;right:12px;padding:5px 9px;font-size:11px}
+.tabs{gap:5px}
+.tab{font-size:12px;padding:7px 10px;letter-spacing:.3px}
+.learn{gap:10px}
+.ladder{width:100%}
+.lesson{min-width:0;padding:14px}
+.lsel .lb{font-size:11px;padding:6px 9px}
+}
 </style></head><body>
 <div class="hero">
   <svg class="heroart" viewBox="0 0 1200 220" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
