@@ -6,23 +6,49 @@ live window into the running simulation at each layer and a knowledge check.
 The operational views (control room, SIEM, historian, scenarios) sit behind it.
 """
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, session
 
 from .curriculum import LEVELS
 from .tags import TagRegistry
+from .connectivity import ConfigStore
+from .store import Store
 
 
 def make_app(bus, gateway, siem, historian, sites, engine):
     app = Flask(__name__)
-    tagreg = TagRegistry()
+    store = Store()
+    tagreg = TagRegistry(store)
+    conn = ConfigStore(store)
+
+    def _user():
+        return session.get("user", "anon")
 
     @app.get("/")
     def index():
         return HTML
 
+    @app.get("/api/whoami")
+    def whoami():
+        return jsonify({"user": _user()})
+
     @app.get("/api/curriculum")
     def curriculum():
         return jsonify(LEVELS)
+
+    @app.get("/api/conn_meta")
+    def conn_meta():
+        return jsonify(conn.meta())
+
+    @app.get("/api/conn")
+    def conn_get():
+        u = _user()
+        return jsonify({"cfg": conn.get(u), "topology": conn.topology(u)})
+
+    @app.post("/api/conn/<layer>")
+    def conn_set(layer):
+        ok, errors, notes = conn.set(_user(), layer, request.get_json(force=True))
+        return (jsonify({"ok": ok, "errors": errors, "notes": notes}),
+                200 if ok else 400)
 
     @app.get("/api/tag_meta")
     def tag_meta():
@@ -30,30 +56,31 @@ def make_app(bus, gateway, siem, historian, sites, engine):
 
     @app.get("/api/tags")
     def tags_list():
-        return jsonify(tagreg.list())
+        return jsonify(tagreg.list(_user()))
 
     @app.post("/api/tags")
     def tags_create():
-        tag, errors = tagreg.create(request.get_json(force=True))
+        tag, errors = tagreg.create(_user(), request.get_json(force=True))
         if errors:
             return jsonify({"ok": False, "errors": errors}), 400
         bus.emit("TRAINING", "TAG-BUILDER",
-                 f"Tag {tag['name']} defined on PLC", "INFO")
+                 f"{_user()}: tag {tag['name']} defined on PLC", "INFO")
         return jsonify({"ok": True, "tag": tag})
 
     @app.post("/api/tags/<tid>/advance")
     def tags_advance(tid):
-        t = tagreg.advance(tid)
+        u = _user()
+        t = tagreg.advance(u, tid, osg=conn.osg(u))
         if not t:
             return jsonify({"ok": False}), 404
         if t["opc_item"] and t["stage"] == 2:
             bus.emit("TRAINING", "KEPWARE-OSG",
-                     f"{t['name']} published as {t['opc_item']} ({t['access']})", "INFO")
+                     f"{u}: {t['name']} published as {t['opc_item']} ({t['access']})", "INFO")
         return jsonify({"ok": True, "tag": t})
 
     @app.delete("/api/tags/<tid>")
     def tags_delete(tid):
-        return jsonify({"ok": tagreg.delete(tid)})
+        return jsonify({"ok": tagreg.delete(_user(), tid)})
 
     @app.get("/api/state")
     def state():
@@ -119,13 +146,14 @@ background:rgba(10,14,20,.45);padding:5px 10px;border:1px solid rgba(255,255,255
 a.out:hover{border-color:var(--ac)}
 .hero{position:relative;margin:14px 0;border-radius:14px;overflow:hidden;
 height:clamp(150px,21vw,196px);border:1px solid var(--ln)}
-.heroart{position:absolute;inset:0;width:100%;height:100%}
+.heroart{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .scrim{position:absolute;inset:0;background:
 linear-gradient(90deg,rgba(7,11,18,.93),rgba(7,11,18,.45) 48%,rgba(7,11,18,.05)),
-linear-gradient(0deg,rgba(7,11,18,.75),transparent 55%)}
+linear-gradient(0deg,rgba(7,11,18,.75),transparent 55%);pointer-events:none}
 .htxt{position:absolute;left:0;bottom:0;padding:16px 22px}
 .kicker{font-family:var(--head);text-transform:uppercase;letter-spacing:2px;font-size:11px;
 color:var(--ac);margin-bottom:6px;font-weight:600}
+.who{font-family:var(--head);text-transform:uppercase;letter-spacing:.5px;font-size:11px;color:var(--cy);margin-top:7px}
 .tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
 .tab{font-family:var(--head);text-transform:uppercase;letter-spacing:.6px;font-size:13px;
 padding:8px 14px;border:1px solid var(--ln);border-radius:8px;cursor:pointer;background:var(--pn)}
@@ -205,6 +233,33 @@ input:focus,select:focus{outline:none;border-color:var(--ac)}
 .stp.on{border-color:var(--ok);color:var(--ok);background:rgba(84,201,140,.12)}
 .meta{font-size:12px;color:var(--mut);margin-top:4px;line-height:1.5}
 .mono{font-family:var(--head);letter-spacing:.3px;color:var(--cy)}
+.hlp{font-size:11px;color:var(--mut);margin-top:3px;line-height:1.4}
+.note{font-size:12px;color:#f4bd6a;background:rgba(242,164,49,.1);border:1px solid #9a6916;border-radius:7px;padding:7px 9px;margin-top:6px;line-height:1.45}
+.lsel{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.lsel .lb{font-family:var(--head);text-transform:uppercase;letter-spacing:.5px;font-size:12px;padding:7px 12px;border:1px solid var(--ln);border-radius:8px;cursor:pointer;background:var(--pn)}
+.lsel .lb.on{background:var(--cy);color:#06222a;border-color:var(--cy);font-weight:600}
+.tnode{border:1px solid var(--ln);border-radius:9px;background:var(--pn);padding:9px 11px;margin-bottom:6px}
+.tnode .role{font-size:11px;color:var(--cy)}
+.tnode .det{font-size:11px;color:var(--mut);margin-top:2px;word-break:break-all}
+@media(max-width:640px){
+body{padding:0 10px 16px}
+.hero{height:auto;min-height:118px}
+.heroart,.scrim{height:100%}
+.scrim{background:linear-gradient(0deg,rgba(7,11,18,.92),rgba(7,11,18,.55))}
+.htxt{position:relative;padding:14px 14px 16px;z-index:2}
+.kicker{font-size:10px;letter-spacing:1.3px;margin-bottom:5px;padding-right:88px}
+h1{font-size:20px;line-height:1.1;letter-spacing:.4px}
+.sub{font-size:12px;line-height:1.4}
+.who{font-size:10px;margin-top:6px}
+a.out{top:12px;right:12px;padding:5px 9px;font-size:11px;z-index:5}
+.tabs{gap:5px}
+.tab{font-size:12px;padding:7px 10px;letter-spacing:.3px}
+.learn{flex-direction:column;gap:12px}
+.learn>*{width:100%;min-width:0!important;flex:none!important}
+.ladder{width:100%}
+.lesson{padding:14px}
+.lsel .lb{font-size:11px;padding:6px 9px}
+}
 </style></head><body>
 <div class="hero">
   <svg class="heroart" viewBox="0 0 1200 220" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
@@ -257,11 +312,13 @@ input:focus,select:focus{outline:none;border-color:var(--ac)}
     <div class="kicker">The Purdue model &middot; Level 0 to Level 5 &middot; live simulation</div>
     <h1>Sumit's OT and Controls Training Platform</h1>
     <div class="sub">A guided tour of the operational technology stack on the OT Purdue model, Level 0 to Level 5, over a live well-control simulation.</div>
+    <div class="who" id="whoami"></div>
   </div>
 </div>
 <div class="tabs">
   <div class="tab on" data-v="learn" onclick="show('learn',this)">Learn the OT stack</div>
   <div class="tab" data-v="tags" onclick="show('tags',this)">Configure tags</div>
+  <div class="tab" data-v="conn" onclick="show('conn',this)">OPC &amp; connectivity</div>
   <div class="tab" data-v="cr" onclick="show('cr',this)">Live control room</div>
   <div class="tab" data-v="siem" onclick="show('siem',this)">SIEM</div>
   <div class="tab" data-v="hist" onclick="show('hist',this)">Historian</div>
@@ -324,6 +381,26 @@ input:focus,select:focus{outline:none;border-color:var(--ac)}
       <div class="explain">Define a tag, then advance it stage by stage. At the OSG it is given a secured OPC item path; at IP21 it becomes a historian tag the business can read.</div>
       <div class="lbl">Configured tags</div>
       <div id="taglist"><div class="sub">No tags yet. Create one on the left to begin.</div></div>
+    </div>
+  </div>
+</div>
+
+<div id="conn" class="view">
+  <div class="learn">
+    <div class="lesson" style="flex:1">
+      <div><b style="font-size:15px">OPC UA &amp; layer connectivity</b></div>
+      <div class="explain">Configure how each tier connects over OPC UA. Field mistakes are blocked; best-practice deviations come back as advisory notes - those are the teaching points.</div>
+      <div class="lsel" id="lsel"></div>
+      <div id="connintro" class="explain"></div>
+      <div id="connform"></div>
+      <div id="connNotes"></div>
+      <div id="connErr" class="explain" style="color:var(--cr)"></div>
+      <div class="nav"><span></span><button class="pri" onclick="saveConn()">Save connection</button></div>
+    </div>
+    <div style="flex:1;min-width:300px">
+      <div class="lbl">OPC UA topology</div>
+      <div id="topo"></div>
+      <div class="explain">PLC serves; SCADA and the OSG subscribe to it; the OSG re-serves north; IP21 collects from the OSG. Security policies must match across each link.</div>
     </div>
   </div>
 </div>
@@ -495,8 +572,56 @@ async function poll(){
 }
 async function boot(){
   CUR=await(await fetch('/api/curriculum')).json();
+  try{const w=await(await fetch('/api/whoami')).json();
+    document.getElementById('whoami').textContent='Signed in as '+w.user+' · your saved workspace';}catch(e){}
   await poll(); renderLesson(); setInterval(poll,1000);
   await initTags();
+  await initConn();
+}
+
+/* ===================== OPC & connectivity ===================== */
+let CM=null, CC=null, curLayer='PLC';
+async function initConn(){
+  CM=await(await fetch('/api/conn_meta')).json();
+  document.getElementById('lsel').innerHTML=CM.map(l=>
+    `<span class="lb ${l.id===curLayer?'on':''}" onclick="pickLayer('${l.id}')">${l.label}</span>`).join('');
+  await loadConn(); renderConnForm();
+}
+async function loadConn(){const d=await(await fetch('/api/conn')).json();CC=d.cfg;renderTopo(d.topology);}
+function pickLayer(id){curLayer=id;
+  document.querySelectorAll('#lsel .lb').forEach(e=>e.classList.remove('on'));
+  document.querySelectorAll('#lsel .lb').forEach(e=>{if(e.textContent===CM.find(l=>l.id===id).label)e.classList.add('on');});
+  document.getElementById('connNotes').innerHTML='';document.getElementById('connErr').innerHTML='';
+  renderConnForm();}
+function field(f,val){
+  const id='c_'+f.k;
+  if(f.type==='select')return `<div class="lbl">${f.label}</div><select id="${id}">${f.options.map(o=>`<option ${o===val?'selected':''}>${o}</option>`).join('')}</select><div class="hlp">${f.help}</div>`;
+  if(f.type==='toggle')return `<label class="chk"><input type="checkbox" id="${id}" ${val?'checked':''}> ${f.label}</label><div class="hlp">${f.help}</div>`;
+  if(f.type==='number')return `<div class="lbl">${f.label}</div><input type="number" id="${id}" value="${val}"><div class="hlp">${f.help}</div>`;
+  return `<div class="lbl">${f.label}</div><input id="${id}" value="${val}"><div class="hlp">${f.help}</div>`;
+}
+function renderConnForm(){
+  const spec=CM.find(l=>l.id===curLayer);const vals=CC[curLayer]||{};
+  document.getElementById('connintro').innerHTML=`<b style="color:var(--cy)">${spec.role}</b> — ${spec.intro}`;
+  document.getElementById('connform').innerHTML=spec.fields.map(f=>field(f,vals[f.k])).join('');
+}
+async function saveConn(){
+  const spec=CM.find(l=>l.id===curLayer);const body={};
+  spec.fields.forEach(f=>{const el=document.getElementById('c_'+f.k);
+    body[f.k]=f.type==='toggle'?el.checked:(f.type==='number'?el.value:el.value);});
+  const r=await fetch('/api/conn/'+curLayer,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();
+  const err=document.getElementById('connErr');const notes=document.getElementById('connNotes');
+  if(!d.ok){err.innerHTML='Fix these:<br>• '+d.errors.join('<br>• ');notes.innerHTML='';return;}
+  err.innerHTML='';
+  notes.innerHTML=d.notes.length?d.notes.map(n=>`<div class="note">${n}</div>`).join(''):'<div class="note" style="color:var(--ok);background:rgba(84,201,140,.1);border-color:var(--ok)">Saved. This link is configured correctly.</div>';
+  await loadConn();
+}
+function renderTopo(t){
+  document.getElementById('topo').innerHTML=t.map(n=>
+    `<div class="tnode"><b>${n.label}</b> <span class="role">${n.role}</span>
+     <div class="det">${n.detail}</div>
+     <div class="det">security: ${n.sec}</div></div>`).join('');
 }
 
 /* ===================== Tag builder ===================== */

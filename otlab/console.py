@@ -146,10 +146,10 @@ background:rgba(10,14,20,.45);padding:5px 10px;border:1px solid rgba(255,255,255
 a.out:hover{border-color:var(--ac)}
 .hero{position:relative;margin:14px 0;border-radius:14px;overflow:hidden;
 height:clamp(150px,21vw,196px);border:1px solid var(--ln)}
-.heroart{position:absolute;inset:0;width:100%;height:100%}
+.heroart{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .scrim{position:absolute;inset:0;background:
 linear-gradient(90deg,rgba(7,11,18,.93),rgba(7,11,18,.45) 48%,rgba(7,11,18,.05)),
-linear-gradient(0deg,rgba(7,11,18,.75),transparent 55%)}
+linear-gradient(0deg,rgba(7,11,18,.75),transparent 55%);pointer-events:none}
 .htxt{position:absolute;left:0;bottom:0;padding:16px 22px}
 .kicker{font-family:var(--head);text-transform:uppercase;letter-spacing:2px;font-size:11px;
 color:var(--ac);margin-bottom:6px;font-weight:600}
@@ -251,12 +251,13 @@ body{padding:0 10px 16px}
 h1{font-size:20px;line-height:1.1;letter-spacing:.4px}
 .sub{font-size:12px;line-height:1.4}
 .who{font-size:10px;margin-top:6px}
-a.out{top:12px;right:12px;padding:5px 9px;font-size:11px}
+a.out{top:12px;right:12px;padding:5px 9px;font-size:11px;z-index:5}
 .tabs{gap:5px}
 .tab{font-size:12px;padding:7px 10px;letter-spacing:.3px}
-.learn{gap:10px}
+.learn{flex-direction:column;gap:12px}
+.learn>*{width:100%;min-width:0!important;flex:none!important}
 .ladder{width:100%}
-.lesson{min-width:0;padding:14px}
+.lesson{padding:14px}
 .lsel .lb{font-size:11px;padding:6px 9px}
 }
 </style></head><body>
