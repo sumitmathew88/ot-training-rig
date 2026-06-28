@@ -9,10 +9,12 @@ The operational views (control room, SIEM, historian, scenarios) sit behind it.
 from flask import Flask, jsonify, request
 
 from .curriculum import LEVELS
+from .tags import TagRegistry
 
 
 def make_app(bus, gateway, siem, historian, sites, engine):
     app = Flask(__name__)
+    tagreg = TagRegistry()
 
     @app.get("/")
     def index():
@@ -21,6 +23,37 @@ def make_app(bus, gateway, siem, historian, sites, engine):
     @app.get("/api/curriculum")
     def curriculum():
         return jsonify(LEVELS)
+
+    @app.get("/api/tag_meta")
+    def tag_meta():
+        return jsonify(tagreg.meta())
+
+    @app.get("/api/tags")
+    def tags_list():
+        return jsonify(tagreg.list())
+
+    @app.post("/api/tags")
+    def tags_create():
+        tag, errors = tagreg.create(request.get_json(force=True))
+        if errors:
+            return jsonify({"ok": False, "errors": errors}), 400
+        bus.emit("TRAINING", "TAG-BUILDER",
+                 f"Tag {tag['name']} defined on PLC", "INFO")
+        return jsonify({"ok": True, "tag": tag})
+
+    @app.post("/api/tags/<tid>/advance")
+    def tags_advance(tid):
+        t = tagreg.advance(tid)
+        if not t:
+            return jsonify({"ok": False}), 404
+        if t["opc_item"] and t["stage"] == 2:
+            bus.emit("TRAINING", "KEPWARE-OSG",
+                     f"{t['name']} published as {t['opc_item']} ({t['access']})", "INFO")
+        return jsonify({"ok": True, "tag": t})
+
+    @app.delete("/api/tags/<tid>")
+    def tags_delete(tid):
+        return jsonify({"ok": tagreg.delete(tid)})
 
     @app.get("/api/state")
     def state():
@@ -157,6 +190,21 @@ th{font-family:var(--head);text-transform:uppercase;letter-spacing:.5px;font-wei
 .toast{position:relative;margin-top:8px;padding:9px 11px;border-radius:8px;font-size:12px;
 background:rgba(242,164,49,.14);border:1px solid var(--ac)}
 .n{font-size:11px;color:var(--mut)}
+input,select{font-family:var(--body);background:var(--pn2);color:var(--tx);border:1px solid var(--ln);border-radius:7px;padding:8px 9px;font-size:13px;width:100%}
+input:focus,select:focus{outline:none;border-color:var(--ac)}
+.frow{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}.frow>div{flex:1;min-width:90px}
+.chk{display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13px;cursor:pointer}
+.chk input{width:auto}
+.pipe{display:flex;gap:5px;align-items:center;margin-top:6px;flex-wrap:wrap}
+.pnode{flex:1;min-width:62px;text-align:center;border:1px solid var(--ln);border-radius:8px;padding:8px 4px;background:var(--pn2);font-family:var(--head);font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--mut)}
+.pnode.on{border-color:var(--cy);color:var(--cy);background:rgba(63,193,207,.1)}
+.parrow{color:var(--mut);font-size:14px}
+.tgrow{border:1px solid var(--ln);border-radius:10px;background:var(--pn);padding:11px;margin-bottom:8px}
+.tgrow .name{font-family:var(--head);font-size:15px;letter-spacing:.5px}
+.stp{display:inline-block;font-family:var(--head);font-size:10px;text-transform:uppercase;letter-spacing:.5px;padding:2px 7px;border-radius:9px;margin:2px 4px 2px 0;border:1px solid var(--ln);color:var(--mut)}
+.stp.on{border-color:var(--ok);color:var(--ok);background:rgba(84,201,140,.12)}
+.meta{font-size:12px;color:var(--mut);margin-top:4px;line-height:1.5}
+.mono{font-family:var(--head);letter-spacing:.3px;color:var(--cy)}
 </style></head><body>
 <div class="hero">
   <svg class="heroart" viewBox="0 0 1200 220" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
@@ -213,6 +261,7 @@ background:rgba(242,164,49,.14);border:1px solid var(--ac)}
 </div>
 <div class="tabs">
   <div class="tab on" data-v="learn" onclick="show('learn',this)">Learn the OT stack</div>
+  <div class="tab" data-v="tags" onclick="show('tags',this)">Configure tags</div>
   <div class="tab" data-v="cr" onclick="show('cr',this)">Live control room</div>
   <div class="tab" data-v="siem" onclick="show('siem',this)">SIEM</div>
   <div class="tab" data-v="hist" onclick="show('hist',this)">Historian</div>
@@ -230,6 +279,54 @@ background:rgba(242,164,49,.14);border:1px solid var(--ac)}
 <div id="cr" class="view"><div class="cards" id="cards"></div></div>
 <div id="siem" class="view"><div id="events"></div></div>
 <div id="hist" class="view"><div id="kpis"></div></div>
+
+<div id="tags" class="view">
+  <div class="learn">
+    <div class="lesson" style="flex:1">
+      <div><b style="font-size:15px">Define a tag on the PLC</b><span class="zbadge z-IC">Level 1</span></div>
+      <div class="explain">Pick a template to start, then adjust. This is how an I/O point is defined on the controller before it is ever seen by SCADA.</div>
+      <div class="lbl">Start from a template</div>
+      <select id="tpl" onchange="applyTpl()"></select>
+      <div class="frow">
+        <div><div class="lbl">Tag name</div><input id="f_name" placeholder="TI-101"></div>
+        <div style="flex:2"><div class="lbl">Description</div><input id="f_desc" placeholder="Separator inlet temperature"></div>
+      </div>
+      <div class="frow">
+        <div><div class="lbl">Category</div><select id="f_cat" onchange="updForm()"></select></div>
+        <div><div class="lbl">Data type</div><select id="f_dt" onchange="updForm()"></select></div>
+        <div><div class="lbl">Unit</div><select id="f_unit"></select></div>
+      </div>
+      <div id="rangeRow" class="frow">
+        <div><div class="lbl">Range min</div><input id="f_rmin" type="number"></div>
+        <div><div class="lbl">Range max</div><input id="f_rmax" type="number"></div>
+      </div>
+      <label class="chk"><input type="checkbox" id="f_alarm" onchange="updForm()"> Alarm enabled</label>
+      <div id="alA" class="frow">
+        <div><div class="lbl">LL</div><input id="f_LL" type="number"></div>
+        <div><div class="lbl">L</div><input id="f_L" type="number"></div>
+        <div><div class="lbl">H</div><input id="f_H" type="number"></div>
+        <div><div class="lbl">HH</div><input id="f_HH" type="number"></div>
+      </div>
+      <div id="alD"><div class="lbl">Alarm when state is</div><select id="f_astate"></select></div>
+      <label class="chk"><input type="checkbox" id="f_hist" onchange="updForm()"> History / trend enabled</label>
+      <div id="sampleRow"><div class="lbl">Sample rate</div><select id="f_sample"></select></div>
+      <div id="tagErr" class="explain" style="color:var(--cr)"></div>
+      <div class="nav"><span></span><button class="pri" onclick="createTag()">Create tag on PLC</button></div>
+    </div>
+    <div style="flex:1;min-width:300px">
+      <div class="lbl">How the tag travels up the stack</div>
+      <div class="pipe">
+        <div class="pnode" id="pn0">PLC<br>L1</div><span class="parrow">&rsaquo;</span>
+        <div class="pnode" id="pn1">SCADA<br>L2</div><span class="parrow">&rsaquo;</span>
+        <div class="pnode" id="pn2">Kepware OSG<br>DMZ</div><span class="parrow">&rsaquo;</span>
+        <div class="pnode" id="pn3">IP21<br>L5</div>
+      </div>
+      <div class="explain">Define a tag, then advance it stage by stage. At the OSG it is given a secured OPC item path; at IP21 it becomes a historian tag the business can read.</div>
+      <div class="lbl">Configured tags</div>
+      <div id="taglist"><div class="sub">No tags yet. Create one on the left to begin.</div></div>
+    </div>
+  </div>
+</div>
 
 <script>
 let CUR=[], idx=0, answered={}, latest={}, FIRST=null;
@@ -399,6 +496,95 @@ async function poll(){
 async function boot(){
   CUR=await(await fetch('/api/curriculum')).json();
   await poll(); renderLesson(); setInterval(poll,1000);
+  await initTags();
 }
+
+/* ===================== Tag builder ===================== */
+let TM=null;
+function opt(v,t){return `<option value="${v}">${t||v}</option>`;}
+async function initTags(){
+  TM=await(await fetch('/api/tag_meta')).json();
+  document.getElementById('tpl').innerHTML='<option value="">— choose a template —</option>'+
+    TM.templates.map((t,i)=>opt(i,t.label)).join('');
+  document.getElementById('f_cat').innerHTML=Object.entries(TM.categories).map(([k,v])=>opt(k,k+' — '+v)).join('');
+  document.getElementById('f_dt').innerHTML=TM.datatypes.map(v=>opt(v)).join('');
+  document.getElementById('f_unit').innerHTML=TM.units.map(v=>opt(v)).join('');
+  document.getElementById('f_astate').innerHTML=TM.digital_states.map(v=>opt(v)).join('');
+  document.getElementById('f_sample').innerHTML=TM.samples.map(v=>opt(v)).join('');
+  updForm(); await loadTags();
+}
+function applyTpl(){
+  const i=document.getElementById('tpl').value; if(i==='')return;
+  const t=TM.templates[i];
+  const set=(id,v)=>{document.getElementById(id).value=(v===undefined||v===null)?'':v;};
+  set('f_name',t.name);set('f_desc',t.description);set('f_cat',t.category);set('f_dt',t.datatype);
+  set('f_unit',t.unit||'none');set('f_rmin',t.range_min);set('f_rmax',t.range_max);
+  document.getElementById('f_alarm').checked=!!t.alarm_enabled;
+  set('f_LL',t.sp_LL);set('f_L',t.sp_L);set('f_H',t.sp_H);set('f_HH',t.sp_HH);
+  if(t.alarm_state)set('f_astate',t.alarm_state);
+  document.getElementById('f_hist').checked=!!t.history_enabled;
+  if(t.sample)set('f_sample',t.sample);
+  updForm();
+}
+function updForm(){
+  const cat=document.getElementById('f_cat').value;
+  const analog=(cat==='AI'||cat==='AO'), digital=(cat==='DI'||cat==='DO');
+  if(digital){document.getElementById('f_dt').value='Boolean';document.getElementById('f_unit').value='none';}
+  const dt=document.getElementById('f_dt').value;
+  const alarm=document.getElementById('f_alarm').checked;
+  const hist=document.getElementById('f_hist').checked;
+  document.getElementById('rangeRow').style.display=analog?'flex':'none';
+  document.getElementById('alA').style.display=(alarm&&analog)?'flex':'none';
+  document.getElementById('alD').style.display=(alarm&&digital)?'block':'none';
+  document.getElementById('sampleRow').style.display=hist?'block':'none';
+}
+function val(id){return document.getElementById(id).value;}
+async function createTag(){
+  const cat=val('f_cat');const analog=(cat==='AI'||cat==='AO');
+  const body={name:val('f_name'),description:val('f_desc'),category:cat,datatype:val('f_dt'),
+    unit:val('f_unit'),range_min:val('f_rmin'),range_max:val('f_rmax'),
+    alarm_enabled:document.getElementById('f_alarm').checked,
+    sp_LL:val('f_LL'),sp_L:val('f_L'),sp_H:val('f_H'),sp_HH:val('f_HH'),
+    alarm_state:val('f_astate'),
+    history_enabled:document.getElementById('f_hist').checked,sample:val('f_sample')};
+  const r=await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();
+  const err=document.getElementById('tagErr');
+  if(!d.ok){err.innerHTML='Fix these before the tag is valid:<br>• '+d.errors.join('<br>• ');return;}
+  err.innerHTML='';document.getElementById('f_name').value='';document.getElementById('tpl').value='';
+  await loadTags();
+}
+async function loadTags(){renderTags(await(await fetch('/api/tags')).json());}
+async function advanceTag(id){await fetch('/api/tags/'+id+'/advance',{method:'POST'});await loadTags();}
+async function deleteTag(id){await fetch('/api/tags/'+id,{method:'DELETE'});await loadTags();}
+function renderTags(list){
+  const maxStage=list.reduce((m,t)=>Math.max(m,t.stage),-1);
+  for(let s=0;s<4;s++)document.getElementById('pn'+s).classList.toggle('on',maxStage>=s);
+  const box=document.getElementById('taglist');
+  if(!list.length){box.innerHTML='<div class="sub">No tags yet. Create one on the left to begin.</div>';return;}
+  box.innerHTML=list.map(t=>{
+    const analog=(t.category==='AI'||t.category==='AO');
+    let cfg=`${t.datatype}`+(t.unit&&t.unit!=='none'?` · ${t.unit}`:'');
+    if(analog && t.range_min!=null)cfg+=` · range ${t.range_min}–${t.range_max}`;
+    let alm='Alarm off';
+    if(t.alarm_enabled){
+      if(analog){const sp=['sp_LL','sp_L','sp_H','sp_HH'].filter(k=>t[k]!=null).map(k=>k.slice(3)+' '+t[k]);alm='Alarm: '+(sp.join(', ')||'on');}
+      else alm='Alarm when '+t.alarm_state;
+    }
+    const his=t.history_enabled?`History every ${t.sample}`:'History off';
+    const pills=TM.stages.map((s,i)=>`<span class="stp ${t.stage>=i?'on':''}">${s}</span>`).join('');
+    const adv=t.stage<3?`<button onclick="advanceTag('${t.id}')">${TM.advance_label[t.stage]} ›</button>`:`<span class="pill on2">Live in IP21</span>`;
+    const opc=t.opc_item?`<div class="meta">OPC item: <span class="mono">${t.opc_item}</span> (${t.access})</div>`:'';
+    const ip21=t.ip21_tag?`<div class="meta">IP21 historian tag: <span class="mono">${t.ip21_tag}</span></div>`:'';
+    return `<div class="tgrow">
+      <div class="name">${t.name} <span class="zbadge z-IC" style="font-size:10px">${t.category}</span></div>
+      <div class="meta">${t.description||''}</div>
+      <div class="meta">${cfg} · ${alm} · ${his}</div>
+      ${opc}${ip21}
+      <div style="margin:8px 0 4px">${pills}</div>
+      <div class="nav"><button onclick="deleteTag('${t.id}')">Delete</button>${adv}</div>
+    </div>`;}).join('');
+}
+
 boot();
 </script></body></html>"""
