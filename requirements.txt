@@ -1,0 +1,4 @@
+asyncua>=1.0
+flask>=3.0
+gunicorn>=21.0
+werkzeug>=3.0
