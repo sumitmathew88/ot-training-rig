@@ -67,7 +67,7 @@ def make_app(bus, gateway, siem, historian, sites, engine):
 
 HTML = r"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OT Workflow Training</title>
+<title>Sumit's OT and Controls Training Platform</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Saira:wght@300;400;500;600&family=Saira+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
@@ -206,9 +206,9 @@ background:rgba(242,164,49,.14);border:1px solid var(--ac)}
   <div class="scrim"></div>
   <a class="out" href="/logout">sign out</a>
   <div class="htxt">
-    <div class="kicker">Upstream control systems &middot; live simulation</div>
-    <h1>OT Workflow Training</h1>
-    <div class="sub">A guided tour of the operational technology stack, Level 0 to Level 5, over a live well-control simulation.</div>
+    <div class="kicker">The Purdue model &middot; Level 0 to Level 5 &middot; live simulation</div>
+    <h1>Sumit's OT and Controls Training Platform</h1>
+    <div class="sub">A guided tour of the operational technology stack on the OT Purdue model, Level 0 to Level 5, over a live well-control simulation.</div>
   </div>
 </div>
 <div class="tabs">
